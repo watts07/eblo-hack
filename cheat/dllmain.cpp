@@ -12,6 +12,9 @@ uintptr_t entitymain;
 typedef uintptr_t(__fastcall* GetPawnByController)(uintptr_t Controller);
 GetPawnByController GetPawn;
 
+float rad(float gradus) {
+    return gradus * (180.f / 3.1415);
+}
 
 uintptr_t GetController(int id) {
     return (uintptr_t)ofunc(entitymain, id);
@@ -45,6 +48,34 @@ uintptr_t get_base_entity_hook(uintptr_t a1, int a2)
 
  }
 
+struct QAngle
+{
+    float x;
+    float y;
+    float z;
+};
+
+struct Vector3
+{
+    float x;
+    float y;
+    float z;
+    constexpr Vector3& operator-()
+    {
+        this->x = -this->x;
+        this->y = -this->y;
+        this->z = -this->z;
+        return *this;
+    }
+    constexpr Vector3 operator-() const
+    {
+        return { -this->x, -this->y, -this->z };
+    }
+    constexpr Vector3 operator-(const Vector3& angSubtract) const
+    {
+        return { this->x - angSubtract.x , this->y - angSubtract.y, this->z - angSubtract.z };
+    }
+};
 
 BOOL __stdcall Main() {
     AllocConsole();
@@ -55,9 +86,13 @@ BOOL __stdcall Main() {
 
     uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
   
-    func = (get_base_entity)(client + 0x629350);
-    GetPawn = (GetPawnByController)(client + 0x57E160);
+    func = (get_base_entity)(client + 0x629340);
+    GetPawn = (GetPawnByController)(client + 0x57E150);
+    uintptr_t localcontroller = *(uintptr_t*)(client + 0x1A0D8E8);
    
+    QAngle* dwViewAngles = (QAngle*)(client + 0x1A29DA0);
+    
+    
 
     if (MH_Initialize() == MH_OK) {
         std::cout << "MH_OK" << std::endl;
@@ -69,14 +104,26 @@ BOOL __stdcall Main() {
         std::cout << "Sleep!" << std::endl;
     }
 
-    for (int i = 0; i <= 64; i++) {
-        auto entcontroller = GetController(i);
-        if (entcontroller) {
-            std::cout << (void*)entcontroller << std::endl;
-        }
-    }
+  
     while (not GetAsyncKeyState(VK_END)) {
+        Vector3 localpos = *(Vector3*)(GetPawn(localcontroller) + 0x137C);
+        for (int i = 0; i <= 64; i++) {
+            auto entcontroller = GetController(i);
+            if (entcontroller and localcontroller != entcontroller) {
+                if (GetPawn(entcontroller)) {
+                    std::cout << GetPawn(entcontroller) << std::endl;
+                    Vector3 pos = *(Vector3*)(GetPawn(entcontroller) + 0x137C);
+                    Vector3 dif = pos - localpos;
+                    float distanceSquared = dif.x * dif.x + dif.y * dif.y;
+                    float invDistance = 1.0f / sqrt(distanceSquared);
 
+                    //std::cout << " x = " << angl.x << " y = " << angl.y << " z = " << angl.z << std::endl;
+                    dwViewAngles->x = rad(atan2(-dif.z, distanceSquared * invDistance));
+                    dwViewAngles->y = rad(atan2(dif.y, dif.x));
+                }
+
+            }
+        }
     }
     MH_DisableHook(0);
     fclose(file);
