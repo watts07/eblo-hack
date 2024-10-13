@@ -1,81 +1,76 @@
 ﻿// dllmain.cpp : Определяет точку входа для приложения DLL.
 #include "pch.h"
+#include <Windows.h>
+#include <iostream>
+#include <vector>
 #include "minhook/include/MinHook.h"
 HMODULE ghModule;
 
-typedef uintptr_t(__fastcall* get_base_entity)(uintptr_t a1, int a2);
-get_base_entity func;
-get_base_entity ofunc;
+uintptr_t FindPattern(uintptr_t pModulebaseAddress, const char* szSingnature, size_t nSelectResultIndex = NULL) {
+    auto PatternToBytes = [](const char* szpattern) {
+        auto m_iBytes = std::vector<int>{};
+        const auto szStarAddr = const_cast<char*>(szpattern);
+        const auto szEndAddr = const_cast<char*>(szpattern) + strlen(szpattern);
 
-uintptr_t entitymain;
+        for (auto szCurrentAddr = szStarAddr; szCurrentAddr < szEndAddr; ++szCurrentAddr) {
+            if (*szCurrentAddr == '?') {
+                ++szCurrentAddr;
+                if (*szCurrentAddr == '?') ++szCurrentAddr;
+                m_iBytes.push_back(-1);
+            }
+            else m_iBytes.push_back(strtoul(szCurrentAddr, &szCurrentAddr, 16));;
+        }
+        return m_iBytes;
+        };
 
-typedef uintptr_t(__fastcall* GetPawnByController)(uintptr_t Controller);
-GetPawnByController GetPawn;
+    const auto pDosHeader = (PIMAGE_DOS_HEADER)pModulebaseAddress;
+    const auto pNTHeaders = (PIMAGE_NT_HEADERS)((std::uint8_t*)pModulebaseAddress + pDosHeader->e_lfanew);
+    const auto dwSizeOfImage = pNTHeaders->OptionalHeader.SizeOfImage;
+    auto m_iPatternBytes = PatternToBytes(szSingnature);
+    const auto pScanBytes = reinterpret_cast<std::uint8_t*>(pModulebaseAddress);
+    const auto m_iPatternBytesSize = m_iPatternBytes.size();
+    const auto m_iPatternBytesData = m_iPatternBytes.data();
+    size_t nFoundResults = 0;
 
-float rad(float gradus) {
-    return gradus * (180.f / 3.1415);
+    for (auto i = 0ul; i < dwSizeOfImage - m_iPatternBytesSize; ++i) {
+        bool bFound = true;
+
+        for (auto j = 0ul; j < m_iPatternBytesSize; ++j) {
+            if (pScanBytes[i + j] != m_iPatternBytesData[j] && m_iPatternBytesData[j] != -1) {
+                bFound = false;
+                break;
+            }
+        }
+        if (bFound) {
+            if (nSelectResultIndex != 0) {
+                if (nFoundResults < nSelectResultIndex) {
+                    nFoundResults++;
+                    bFound = false;
+                }
+                else return reinterpret_cast<uintptr_t>(&pScanBytes[i]);
+            }
+            else return reinterpret_cast<uintptr_t>(&pScanBytes[i]);
+        }
+    }
+    return NULL;
 }
 
-uintptr_t GetController(int id) {
-    return (uintptr_t)ofunc(entitymain, id);
+std::uint8_t* ResolveRalativeAddress(std::uint8_t* nAddressBytes, std::uint32_t nRVAOffset, std::uint32_t nRIPOffet)
+{
+    std::uint32_t nRVA = *reinterpret_cast<std::uint32_t*>(nAddressBytes + nRVAOffset);
+    std::uint64_t nRIP = reinterpret_cast<std::uint64_t>(nAddressBytes) + nRIPOffet;
+
+    return reinterpret_cast<std::uint8_t*>(nRVA + nRIP);
 }
-uintptr_t get_base_entity_hook(uintptr_t a1, int a2)
+
+std::uint8_t* GetAdsoluteAddress(std::uint8_t* pRelativeAddress, int nPreOffset, int nPostOffset)
 {
-    entitymain = a1;
+    pRelativeAddress += nPreOffset;
+    pRelativeAddress += sizeof(std::int32_t) + *reinterpret_cast<std::int32_t*>(pRelativeAddress);
+    pRelativeAddress += nPostOffset;
+    return pRelativeAddress;
+}
 
-    
-    
-    __int64 v2; // rcx
-    signed __int64 v3; // rcx
-    __int64 result; // rax
-
-    if ((unsigned int)a2 <= 0x7FFE
-        && (unsigned int)(a2 >> 9) <= 0x3F
-        && (v2 = *(uintptr_t*)(a1 + 8i64 * (a2 >> 9) + 16)) != 0
-        && (v3 = 120i64 * (a2 & 0x1FF) + v2) != 0
-        && (*(uintptr_t*)(v3 + 16) & 0x7FFF) == a2)
-    {
-        result = *(uintptr_t*)v3;
-    }
-    else
-    {
-        result = 0i64;
-    }
-        
-    
-
-    return result;
-
- }
-
-struct QAngle
-{
-    float x;
-    float y;
-    float z;
-};
-
-struct Vector3
-{
-    float x;
-    float y;
-    float z;
-    constexpr Vector3& operator-()
-    {
-        this->x = -this->x;
-        this->y = -this->y;
-        this->z = -this->z;
-        return *this;
-    }
-    constexpr Vector3 operator-() const
-    {
-        return { -this->x, -this->y, -this->z };
-    }
-    constexpr Vector3 operator-(const Vector3& angSubtract) const
-    {
-        return { this->x - angSubtract.x , this->y - angSubtract.y, this->z - angSubtract.z };
-    }
-};
 
 BOOL __stdcall Main() {
     AllocConsole();
@@ -84,47 +79,17 @@ BOOL __stdcall Main() {
     freopen_s(&file, "CONOUT$", "w+", stdout);
     std::cout << "Hi!" << std::endl;
 
-    uintptr_t client = (uintptr_t)GetModuleHandleA("client.dll");
-  
-    func = (get_base_entity)(client + 0x629340);
-    GetPawn = (GetPawnByController)(client + 0x57E150);
-    uintptr_t localcontroller = *(uintptr_t*)(client + 0x1A0D8E8);
-   
-    QAngle* dwViewAngles = (QAngle*)(client + 0x1A29DA0);
+    uintptr_t cs2 = (uintptr_t)GetModuleHandleA("cs2.exe");
+    uintptr_t client = (uintptr_t)GetModuleHandleA("clien.dll");
     
-    
+    //std::cout << (uintptr_t*)FindPattern(cs2, "48 89 6C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 41 83 E8") << std::endl;
+    std::cout << (uintptr_t*)ResolveRalativeAddress((uint8_t*)FindPattern(client, "48 8D 05 ? ? ? ? C3 CC CC CC CC CC CC CC CC 48 83 EC ? 8B 0D"), 0x3, 0x7) << std::endl;
 
-    if (MH_Initialize() == MH_OK) {
-        std::cout << "MH_OK" << std::endl;
-        if (MH_CreateHook(reinterpret_cast<void**>(func), &get_base_entity_hook, reinterpret_cast<void**>(&ofunc)) == MH_OK) { std::cout << "HOOK!" << std::endl; }
-    }
-    MH_EnableHook(0);
-
-    while (entitymain == 0) {
-        std::cout << "Sleep!" << std::endl;
-    }
-
-  
     while (not GetAsyncKeyState(VK_END)) {
-        Vector3 localpos = *(Vector3*)(GetPawn(localcontroller) + 0x137C);
-        for (int i = 0; i <= 64; i++) {
-            auto entcontroller = GetController(i);
-            if (entcontroller and localcontroller != entcontroller) {
-                if (GetPawn(entcontroller)) {
-                    std::cout << GetPawn(entcontroller) << std::endl;
-                    Vector3 pos = *(Vector3*)(GetPawn(entcontroller) + 0x137C);
-                    Vector3 dif = pos - localpos;
-                    float distanceSquared = dif.x * dif.x + dif.y * dif.y;
-                    float invDistance = 1.0f / sqrt(distanceSquared);
 
-                    //std::cout << " x = " << angl.x << " y = " << angl.y << " z = " << angl.z << std::endl;
-                    dwViewAngles->x = rad(atan2(-dif.z, distanceSquared * invDistance));
-                    dwViewAngles->y = rad(atan2(dif.y, dif.x));
-                }
-
-            }
-        }
     }
+  
+    
     MH_DisableHook(0);
     fclose(file);
     FreeConsole();
