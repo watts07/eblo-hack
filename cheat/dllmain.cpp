@@ -4,6 +4,8 @@
 #include <iostream>
 #include <vector>
 #include "minhook/include/MinHook.h"
+#include "ImGui/imgui.h"
+#include "ImGui.h"
 HMODULE ghModule;
 
 uintptr_t FindPattern(uintptr_t pModulebaseAddress, const char* szSingnature, size_t nSelectResultIndex = NULL) {
@@ -80,16 +82,16 @@ BOOL __stdcall Main() {
     std::cout << "Hi!" << std::endl;
 
     uintptr_t cs2 = (uintptr_t)GetModuleHandleA("cs2.exe");
+    uintptr_t GameOverlayRenderer64 = (uintptr_t)GetModuleHandleA("GameOverlayRenderer64.dll");
     uintptr_t client = (uintptr_t)GetModuleHandleA("clien.dll");
     
-    //std::cout << (uintptr_t*)FindPattern(cs2, "48 89 6C 24 ?? 48 89 74 24 ?? 57 48 83 EC ?? 41 83 E8") << std::endl;
-    std::cout << (uintptr_t*)ResolveRalativeAddress((uint8_t*)FindPattern(client, "48 8D 05 ? ? ? ? C3 CC CC CC CC CC CC CC CC 48 83 EC ? 8B 0D"), 0x3, 0x7) << std::endl;
-
+    if (MH_Initialize() == MH_OK) {
+        MH_CreateHook(reinterpret_cast<void**>(GameOverlayRenderer64 + 0x8E4C0), &hkPresent, reinterpret_cast<void**>(&orighkPresent));
+    }
+    MH_EnableHook(0);
     while (not GetAsyncKeyState(VK_END)) {
 
-    }
-  
-    
+    } 
     MH_DisableHook(0);
     fclose(file);
     FreeConsole();
